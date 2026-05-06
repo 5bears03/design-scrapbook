@@ -8,7 +8,6 @@ import { fileURLToPath } from "url";
 import { db } from "./src/db/index.js";
 import { images, tags } from "./src/db/schema.js";
 import { eq, desc, asc, and, gte, lte } from "drizzle-orm";
-import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -21,6 +20,12 @@ const PORT = 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
+
+// Logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  next();
+});
 
 // Setup multer for file uploads
 const uploadDir = path.join(__dirname, "uploads");
@@ -85,6 +90,7 @@ app.post("/api/images", upload.single("image"), async (req, res) => {
     const imageUrl = `/uploads/${file.filename}`;
     
     let generatedTags: string[] = [];
+
     if (tagsJson) {
       try {
         generatedTags = JSON.parse(tagsJson);
@@ -170,7 +176,7 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, "dist");
     app.use(express.static(distPath));
-    app.get("*all", (req, res) => {
+    app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

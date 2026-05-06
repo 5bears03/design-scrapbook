@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { format, parseISO } from "date-fns";
-import { Upload, X, Copy, Check, Paperclip, Pin, Moon, Sun, LayoutList, Columns as ColumnsIcon, LayoutGrid, Plus, PenLine } from "lucide-react";
+import { Upload, X, Copy, Check, Paperclip, Pin, Moon, Sun, LayoutList, Columns as ColumnsIcon, LayoutGrid, Plus, PenLine, ChevronLeft, ChevronRight } from "lucide-react";
 import { extractColors as runColorExtraction } from "extract-colors";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -27,6 +27,21 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [columnCount, setColumnCount] = useState<1 | 2 | 4>(2);
+  const [[currentPage, direction], setCurrentPage] = useState([1, 0]);
+
+  const getItemsPerPage = () => {
+    if (columnCount === 1) return 6;
+    if (columnCount === 2) return 12;
+    return 24;
+  };
+
+  const itemsPerPage = getItemsPerPage();
+  const totalPages = Math.ceil(images.length / itemsPerPage) || 1;
+
+  // Reset to first page when layout changes to avoid being out of bounds
+  useEffect(() => {
+    setCurrentPage([1, 0]);
+  }, [columnCount]);
 
   const cycleColumns = () => {
     if (columnCount === 1) setColumnCount(2);
@@ -53,7 +68,7 @@ export default function App() {
       const res = await fetch("/api/images");
       if (res.ok) {
         const data = await res.json();
-        setImages(data);
+        setImages(data.sort((a: ImageItem, b: ImageItem) => new Date(b.date).getTime() - new Date(a.date).getTime()));
       }
     } catch (error) {
       console.error("Failed to fetch images:", error);
@@ -69,58 +84,62 @@ export default function App() {
     let generatedTags: string[] = [];
     
     try {
-      // 1. Convert file to base64
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          // Extract just the base64 part
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      // Check if API key is available
+      if (!process.env.GEMINI_API_KEY) {
+        console.warn("GEMINI_API_KEY is not defined. Tags will be generic.");
+        generatedTags = ["UI Design", "Layout", "Typography"];
+      } else {
+        // 1. Convert file to base64
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64 = result.split(',')[1];
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
 
-      // 2. Call Gemini API
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: {
-          parts: [
+        // 2. Call Gemini
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const result = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [
             {
-              inlineData: {
-                data: base64Data,
-                mimeType: file.type,
+              parts: [
+                {
+                  inlineData: {
+                    data: base64Data,
+                    mimeType: file.type,
+                  },
+                },
+                {
+                  text: "Analyze this design screenshot and generate 5 to 10 professional design terminology keywords that describe its style, layout, typography, color palette, or UI patterns. Return ONLY a JSON array of strings.",
+                },
+              ],
+            },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.STRING,
               },
             },
-            {
-              text: "Analyze this design screenshot and generate 5 to 10 professional design terminology keywords that describe its style, layout, typography, color palette, or UI patterns. Return ONLY a JSON array of strings.",
-            }
-          ]
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.STRING,
-            },
           },
-        },
-      });
+        });
 
-      let text = response.text;
-      if (text) {
-        text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-        generatedTags = JSON.parse(text);
+        if (result.text) {
+          generatedTags = JSON.parse(result.text);
+        }
       }
-    } catch (error: any) {
-      console.error("Gemini API Error:", error);
-      generatedTags = ["UI Design", "Layout", "Typography", `Error: ${error?.message?.substring(0, 20) || 'Unknown'}`];
+    } catch (aiError) {
+      console.error("Gemini tagging failed:", aiError);
+      generatedTags = ["UI Design", "Layout", "Typography"];
     }
 
-    // 3. Upload to backend
     const formData = new FormData();
     formData.append("image", file);
     formData.append("date", date.toISOString());
@@ -132,12 +151,31 @@ export default function App() {
         body: formData,
       });
       
-      if (res.ok) {
-        const newImage = await res.json();
-        setImages(prev => [...prev, newImage]);
+      const contentType = res.headers.get("content-type");
+      let data;
+      
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        console.error("Server returned non-JSON response:", text);
+        // Special diagnostic for Cookie Check page
+        if (text.includes("Cookie check")) {
+          throw new Error("Authentication session expired. Please refresh the page or click 'Authenticate in new window'.");
+        }
+        throw new Error(`Server returned ${res.status}: ${text.substring(0, 100)}`);
       }
-    } catch (error) {
-      console.error("Upload failed:", error);
+      
+      if (res.ok) {
+        setImages(prev => [data, ...prev]);
+        setCurrentPage([1, 0]);
+      } else {
+        console.error("Upload failed server-side:", data.error);
+        alert(`Upload failed: ${data.error || 'Server error'}`);
+      }
+    } catch (error: any) {
+      console.error("Upload error details:", error);
+      alert(`Upload failed: ${error.message}`);
     } finally {
       setIsUploading(false);
     }
@@ -170,21 +208,27 @@ export default function App() {
     }
   };
 
+  // Pagination logic
+  const paginatedImages = images.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
   const gridItems: React.ReactNode[] = [];
   
   if (images.length === 0) {
     gridItems.push(
-      <div key="example" className="mb-12 flex flex-col items-center gap-5 w-full relative animate-in fade-in duration-700">
+      <div key="example" className="mb-12 flex flex-col items-center gap-5 w-full relative">
         <div className="absolute -top-8 -left-4 z-30 transform -rotate-12">
           <span className="font-handwriting text-2xl font-bold text-destructive/80 bg-background/80 px-2 rounded hidden sm:block">
             Example
           </span>
         </div>
-        <div className={`text-center z-10 -mb-2 ${columnCount === 4 ? 'max-sm:hidden' : ''}`}>
-          <span className="font-handwriting text-xl font-bold masking-tape inline-block whitespace-nowrap">
-            {format(new Date(), "MMM d, yyyy")}
-          </span>
-        </div>
+          <div className={`text-center z-10 -mb-2 ${columnCount === 4 ? 'max-sm:hidden' : ''}`}>
+            <span 
+              className="font-handwriting text-xl font-bold inline-block whitespace-nowrap opacity-60"
+              style={{ '--random-rotate': Math.random() } as React.CSSProperties}
+            >
+              {format(new Date(), "MMM d, yyyy")}
+            </span>
+          </div>
         <div className="opacity-80 sepia-[.2] w-full">
           <ImageCard 
             image={{
@@ -206,11 +250,14 @@ export default function App() {
       </div>
     );
   } else {
-    images.forEach(img => {
+    paginatedImages.forEach(img => {
       gridItems.push(
         <div key={img.id} className="mb-12 flex flex-col items-center gap-5 w-full">
           <div className={`text-center z-10 -mb-2 ${columnCount === 4 ? 'max-sm:hidden' : ''}`}>
-            <span className="font-handwriting text-xl font-bold masking-tape inline-block whitespace-nowrap">
+            <span 
+              className="font-handwriting text-xl font-bold inline-block whitespace-nowrap opacity-60"
+              style={{ '--random-rotate': (img.id % 5) / 5 } as React.CSSProperties} // Use deterministic rotation for performance/consistency
+            >
               {format(parseISO(img.date), "MMM d, yyyy")}
             </span>
           </div>
@@ -225,23 +272,43 @@ export default function App() {
     });
   }
 
-  gridItems.push(
-    <div key="upload-zone" className="flex flex-col items-center gap-5 w-full mb-12">
-      <div className={`text-center opacity-0 select-none -mb-2 ${columnCount === 4 ? 'max-sm:hidden' : ''}`}>
-        <span className="font-handwriting text-xl masking-tape inline-block px-4 py-1">Spacing</span>
+  // Only show upload zone on the first page
+  if (currentPage === 1) {
+    gridItems.push(
+      <div key="upload-zone" id="upload-zone-container" className="flex flex-col items-center gap-5 w-full mb-12">
+        <div className={`text-center opacity-0 select-none -mb-2 ${columnCount === 4 ? 'max-sm:hidden' : ''}`}>
+          <span className="font-handwriting text-xl masking-tape inline-block px-4 py-1">Spacing</span>
+        </div>
+        <UploadZone onUpload={handleFileUpload} isFirst={images.length === 0} columnCount={columnCount} />
       </div>
-      <UploadZone onUpload={handleFileUpload} isFirst={images.length === 0} columnCount={columnCount} />
-    </div>
-  );
+    );
+  }
 
   const columns: React.ReactNode[][] = Array.from({ length: columnCount }, () => []);
   gridItems.forEach((item, index) => {
     columns[index % columnCount].push(item);
   });
 
+  const variants = {
+    enter: (direction: number) => ({
+      x: direction > 0 ? 300 : -300,
+      opacity: 0,
+    }),
+    center: {
+      zIndex: 1,
+      x: 0,
+      opacity: 1,
+    },
+    exit: (direction: number) => ({
+      zIndex: 0,
+      x: direction < 0 ? 300 : -300,
+      opacity: 0,
+    })
+  };
+
   return (
     <TooltipProvider>
-      <div className="min-h-screen vintage-paper font-sans p-6 md:p-12 flex flex-col items-center relative overflow-hidden">
+      <div className="min-h-screen vintage-paper font-sans p-6 md:p-12 flex flex-col items-center relative transition-colors duration-300">
         {/* Artistic Paper Marks */}
         <div className="torn-edge" />
         <div className="paper-crease" />
@@ -252,7 +319,7 @@ export default function App() {
           <div className="flex flex-col items-center relative">
             <div className="flex items-center gap-4">
               <h1 className="text-5xl font-handwriting tracking-tight text-primary font-bold -rotate-2 drop-shadow-md">
-                Design Scrapbook
+                Visual Prompt Clipboard
               </h1>
               <PenLine className="w-8 h-8 text-primary opacity-60 -rotate-12 mt-2" />
             </div>
@@ -273,14 +340,103 @@ export default function App() {
 
         {/* Main Grid */}
         <main className={`flex-1 w-full mx-auto ${columnCount === 1 ? 'max-w-xl' : columnCount === 2 ? 'max-w-5xl' : 'max-w-7xl'}`}>
-          <div className="flex w-full gap-6 md:gap-10 pb-20 items-start justify-center">
-            {columns.map((col, colIndex) => (
-              <div key={colIndex} className="flex flex-col flex-1 gap-0 w-full min-w-0">
-                {col}
+          <AnimatePresence mode="wait" custom={direction}>
+            <motion.div 
+              key={currentPage}
+              custom={direction}
+              variants={variants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{
+                x: { type: "spring", stiffness: 300, damping: 30 },
+                opacity: { duration: 0.2 }
+              }}
+              className="flex w-full gap-6 md:gap-10 pb-20 items-start justify-center"
+            >
+              {columns.map((col, colIndex) => (
+                <div key={colIndex} className="flex flex-col flex-1 gap-0 w-full min-w-0">
+                  {col}
+                </div>
+              ))}
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-8 py-8 relative">
+              <Button 
+                variant="ghost" 
+                onClick={() => setCurrentPage([Math.max(1, currentPage - 1), -1])}
+                disabled={currentPage === 1}
+                className="text-primary hover:bg-primary/5 disabled:opacity-30"
+              >
+                <ChevronLeft className="w-8 h-8" />
+              </Button>
+              
+              <div className="flex items-center gap-3">
+                {Array.from({ length: totalPages }).map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      const newPage = i + 1;
+                      if (newPage !== currentPage) {
+                        setCurrentPage([newPage, newPage > currentPage ? 1 : -1]);
+                      }
+                    }}
+                    className={`w-3 h-3 rounded-full transition-all duration-300 ${currentPage === i + 1 ? 'bg-primary scale-125' : 'bg-primary/20 hover:bg-primary/40'}`}
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+
+              <Button 
+                variant="ghost" 
+                onClick={() => setCurrentPage([Math.min(totalPages, currentPage + 1), 1])}
+                disabled={currentPage === totalPages}
+                className="text-primary hover:bg-primary/5 disabled:opacity-30"
+              >
+                <ChevronRight className="w-8 h-8" />
+              </Button>
+
+              <div className="absolute -bottom-2 text-primary/30 font-handwriting italic">
+                Page {currentPage} of {totalPages}
+              </div>
+            </div>
+          )}
         </main>
+
+        {/* Footer - Finite feeling */}
+        <footer className="w-full max-w-7xl mx-auto pt-10 pb-20 flex flex-col items-center justify-center relative">
+          <div className="w-full h-px bg-primary/10 mb-8" />
+          <p className="font-handwriting text-2xl text-primary/40 italic">End of current collection</p>
+        </footer >
+
+        {/* Floating Add Button */}
+        <div className="fixed bottom-8 right-8 z-50 flex flex-col gap-4">
+          <Button 
+            onClick={() => {
+              if (currentPage !== 1) {
+                setCurrentPage([1, -1]);
+                // Allow state change to process before scrolling
+                setTimeout(() => {
+                  const uploadZone = document.getElementById('upload-zone-container');
+                  if (uploadZone) uploadZone.scrollIntoView({ behavior: 'smooth' });
+                  // @ts-ignore
+                  document.querySelector('input[type="file"]')?.click();
+                }, 100);
+              } else {
+                const uploadZone = document.getElementById('upload-zone-container');
+                if (uploadZone) uploadZone.scrollIntoView({ behavior: 'smooth' });
+                // @ts-ignore
+                document.querySelector('input[type="file"]')?.click();
+              }
+            }}
+            className="w-16 h-16 rounded-full shadow-2xl bg-primary text-primary-foreground hover:scale-110 transition-transform flex items-center justify-center border-2 border-primary-foreground/20"
+            title="Add to scrapbook"
+          >
+            <Plus className="w-8 h-8" />
+          </Button>
+        </div>
 
         {/* Loading Overlay */}
         <AnimatePresence>
@@ -425,6 +581,7 @@ const ImageCard: React.FC<{
 
       <div 
         className="polaroid relative w-full" 
+        data-columns={columnCount}
         style={{ '--random-rotate': randomRotate } as React.CSSProperties}
       >
         {/* Skeuomorphic Decoration */}
