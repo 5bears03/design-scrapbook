@@ -14,4 +14,6 @@ export const tags = sqliteTable("tags", {
     .notNull()
     .references(() => images.id, { onDelete: "cascade" }),
   term: text("term").notNull(),
+  category: text("category"),
+  description: text("description"),
 });

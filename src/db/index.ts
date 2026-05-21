@@ -26,6 +26,31 @@ sqlite.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     image_id INTEGER NOT NULL,
     term TEXT NOT NULL,
+    category TEXT,
+    description TEXT,
     FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
   );
 `);
+
+// Migration: Add category column to tags if it doesn't exist
+const tableInfo = sqlite.prepare("PRAGMA table_info(tags)").all() as any[];
+const hasCategory = tableInfo.some((column) => column.name === "category");
+const hasDescription = tableInfo.some((column) => column.name === "description");
+
+if (!hasCategory) {
+  try {
+    sqlite.exec("ALTER TABLE tags ADD COLUMN category TEXT;");
+    console.log("Successfully added 'category' column to 'tags' table.");
+  } catch (error) {
+    console.error("Error migrating tags table (category):", error);
+  }
+}
+
+if (!hasDescription) {
+  try {
+    sqlite.exec("ALTER TABLE tags ADD COLUMN description TEXT;");
+    console.log("Successfully added 'description' column to 'tags' table.");
+  } catch (error) {
+    console.error("Error migrating tags table (description):", error);
+  }
+}

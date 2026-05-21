@@ -89,11 +89,17 @@ app.post("/api/images", upload.single("image"), async (req, res) => {
 
     const imageUrl = `/uploads/${file.filename}`;
     
-    let generatedTags: string[] = [];
+    let generatedTags: Record<string, string[]> = {};
 
     if (tagsJson) {
       try {
-        generatedTags = JSON.parse(tagsJson);
+        const parsed = JSON.parse(tagsJson);
+        // Handle both older array format and new categorized object format
+        if (Array.isArray(parsed)) {
+          generatedTags = { "General": parsed };
+        } else {
+          generatedTags = parsed;
+        }
       } catch (e) {
         console.error("Failed to parse tags JSON:", e);
       }
@@ -107,13 +113,36 @@ app.post("/api/images", upload.single("image"), async (req, res) => {
 
     const imageId = insertResult.id;
 
-    // Save tags
-    if (generatedTags.length > 0) {
-      const tagValues = generatedTags.map(term => ({
-        imageId,
-        term,
-      }));
-      db.insert(tags).values(tagValues).run();
+    // Save categorized tags
+    console.log("Processing tags to save:", tagsJson);
+    const tagEntries = Object.entries(generatedTags);
+    if (tagEntries.length > 0) {
+      const tagValues: any[] = [];
+      tagEntries.forEach(([category, items]) => {
+        if (Array.isArray(items)) {
+          items.forEach(item => {
+            if (typeof item === 'string') {
+              tagValues.push({
+                imageId,
+                term: item,
+                category,
+              });
+            } else if (item && typeof item === 'object') {
+              // Handle items with term and description
+              const tagItem = item as any;
+              tagValues.push({
+                imageId,
+                term: tagItem.term || "",
+                category,
+                description: tagItem.description || null,
+              });
+            }
+          });
+        }
+      });
+      if (tagValues.length > 0) {
+        db.insert(tags).values(tagValues).run();
+      }
     }
 
     // Return the created image with tags
