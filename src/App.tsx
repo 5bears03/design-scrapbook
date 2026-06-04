@@ -164,7 +164,12 @@ export default function App() {
         });
 
         // 2. Call Gemini
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const ai = new GoogleGenAI({ 
+          apiKey: process.env.GEMINI_API_KEY,
+          httpOptions: {
+            baseUrl: 'https://vcp-gemini-proxy.wuxiaoran1230.workers.dev'
+  } 
+        });
         const result = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
           contents: [
