@@ -1388,7 +1388,13 @@ const ImageCard: React.FC<{
           </div>
         )}
         {decorationType === 2 && (
-          <div className="absolute -top-4 -right-2 z-10 text-gray-400 drop-shadow-md transform rotate-45">
+          <div 
+            className={`absolute z-10 text-gray-400 drop-shadow-md transform rotate-45 transition-all duration-200 ${
+              columnCount === 4 
+                ? "top-[-14px] right-[-5px] scale-75" 
+                : "top-[-16px] right-[-8px]"
+            }`}
+          >
             <Paperclip className="w-8 h-8" />
           </div>
         )}

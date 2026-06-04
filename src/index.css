@@ -47,24 +47,24 @@
 }
 
 .dark {
-  --background: #1c1917;
+  --background: #343538;
   --foreground: #e8e2d9;
-  --card: #26211d;
+  --card: #3f4044;
   --card-foreground: #e8e2d9;
-  --popover: #26211d;
+  --popover: #3f4044;
   --popover-foreground: #e8e2d9;
   --primary: #c98e7a;
-  --primary-foreground: #1c1917;
-  --secondary: #352f2c;
+  --primary-foreground: #343538;
+  --secondary: #4a4b4f;
   --secondary-foreground: #e8e2d9;
-  --muted: #352f2c;
+  --muted: #4a4b4f;
   --muted-foreground: #9a8e85;
-  --accent: #352f2c;
+  --accent: #4a4b4f;
   --accent-foreground: #e8e2d9;
   --destructive: #842020;
   --destructive-foreground: #e8e2d9;
-  --border: #352f2c;
-  --input: #352f2c;
+  --border: #4a4b4f;
+  --input: #4a4b4f;
   --ring: #c98e7a;
 }
 
@@ -189,6 +189,12 @@
   backdrop-filter: blur(1px);
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   z-index: 10;
+  transition: all 0.2s ease-out;
+}
+
+.polaroid[data-columns="4"] .tape {
+  transform: translateX(-50%) rotate(-2deg) scale(0.5);
+  top: -11px;
 }
 
 .torn-edge {
