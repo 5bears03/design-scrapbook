@@ -167,7 +167,7 @@ export default function App() {
         const ai = new GoogleGenAI({ 
           apiKey: process.env.GEMINI_API_KEY,
           httpOptions: {
-            baseUrl: 'https://vcp-gemini-proxy.wuxiaoran1230.workers.dev'
+            baseUrl: 'http://82.156.197.138:3000'
   } 
         });
         const result = await ai.models.generateContent({
