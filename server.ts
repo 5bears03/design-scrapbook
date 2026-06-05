@@ -194,6 +194,29 @@ app.delete("/api/images/:id", async (req, res) => {
   }
 });
 
+// Gemini API Proxy - server forwards requests to Google
+app.all('/v1/*', async (req, res) => {
+  try {
+    const targetPath = req.path;
+    const queryString = new URLSearchParams(req.query as Record<string, string>).toString();
+    const targetUrl = `https://generativelanguage.googleapis.com${targetPath}${queryString ? '?' + queryString : ''}`;
+    const fetchOptions: any = {
+      method: req.method,
+      headers: { 'Content-Type': req.headers['content-type'] || 'application/json' },
+    };
+    if (req.body && Object.keys(req.body).length > 0) {
+      fetchOptions.body = JSON.stringify(req.body);
+    }
+    const response = await fetch(targetUrl, fetchOptions);
+    const data = await response.text();
+    res.set('Access-Control-Allow-Origin', '*');
+    res.status(response.status).send(data);
+  } catch (error) {
+    console.error('Gemini proxy error:', error);
+    res.status(500).json({ error: 'Failed to proxy Gemini request' });
+  }
+});
+
 async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
